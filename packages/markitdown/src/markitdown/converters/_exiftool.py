@@ -1,7 +1,10 @@
 import json
 import subprocess
-import locale
-from typing import BinaryIO, Any, Union
+from typing import Any, BinaryIO, Union
+
+
+def _parse_version(version: str) -> tuple:
+    return tuple(map(int, (version.split("."))))
 
 
 def exiftool_metadata(
@@ -12,6 +15,26 @@ def exiftool_metadata(
     # Nothing to do
     if not exiftool_path:
         return {}
+
+    # Verify exiftool version
+    try:
+        version_output = subprocess.run(
+            [exiftool_path, "-ver"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        version = _parse_version(version_output)
+        min_version = (12, 24)
+        if version < min_version:
+            raise RuntimeError(
+                f"ExifTool version {version_output} is vulnerable to CVE-2021-22204. "
+                "Please upgrade to version 12.24 or later."
+            )
+    except OSError as e:
+        raise RuntimeError(f"Failed to invoke exiftool at {exiftool_path}: {e}") from e
+    except (subprocess.CalledProcessError, ValueError) as e:
+        raise RuntimeError("Failed to verify ExifTool version.") from e
 
     # Run exiftool
     cur_pos = file_stream.tell()
@@ -24,7 +47,11 @@ def exiftool_metadata(
         ).stdout
 
         return json.loads(
-            output.decode(locale.getpreferredencoding(False)),
+            output.decode(
+                "utf-8"
+            ),  # ExifTool always outputs UTF-8 encoded JSON, even if the input file is not UTF-8 encoded
         )[0]
+    except OSError as e:
+        raise RuntimeError(f"Failed to invoke exiftool at {exiftool_path}: {e}") from e
     finally:
         file_stream.seek(cur_pos)

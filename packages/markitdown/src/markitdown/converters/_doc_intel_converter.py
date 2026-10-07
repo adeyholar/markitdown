@@ -84,6 +84,9 @@ def _get_mime_type_prefixes(types: List[DocumentIntelligenceFileType]) -> List[s
             prefixes.append(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+        elif type_ == DocumentIntelligenceFileType.HTML:
+            prefixes.append("text/html")
+            prefixes.append("application/xhtml+xml")
         elif type_ == DocumentIntelligenceFileType.PDF:
             prefixes.append("application/pdf")
             prefixes.append("application/x-pdf")
@@ -119,6 +122,8 @@ def _get_file_extensions(types: List[DocumentIntelligenceFileType]) -> List[str]
             extensions.append(".bmp")
         elif type_ == DocumentIntelligenceFileType.TIFF:
             extensions.append(".tiff")
+        elif type_ == DocumentIntelligenceFileType.HTML:
+            extensions.append(".html")
     return extensions
 
 
@@ -129,7 +134,7 @@ class DocumentIntelligenceConverter(DocumentConverter):
         self,
         *,
         endpoint: str,
-        api_version: str = "2024-07-31-preview",
+        api_version: str | None = None,
         credential: AzureKeyCredential | TokenCredential | None = None,
         file_types: List[DocumentIntelligenceFileType] = [
             DocumentIntelligenceFileType.DOCX,
@@ -147,7 +152,7 @@ class DocumentIntelligenceConverter(DocumentConverter):
 
         Args:
             endpoint (str): The endpoint for the Document Intelligence service.
-            api_version (str): The API version to use. Defaults to "2024-07-31-preview".
+            api_version (str | None): The API version to use. Defaults to None.
             credential (AzureKeyCredential | TokenCredential | None): The credential to use for authentication.
             file_types (List[DocumentIntelligenceFileType]): The file types to accept. Defaults to all supported file types.
         """
@@ -160,7 +165,7 @@ class DocumentIntelligenceConverter(DocumentConverter):
         # unless explicitly requested.
         if _dependency_exc_info is not None:
             raise MissingDependencyException(
-                "DocumentIntelligenceConverter requires the optional dependency [az-doc-intel] (or [all]) to be installed. E.g., `pip install markitdown[az-doc-intel]`"
+                "DocumentIntelligenceConverter requires the optional dependency [az-doc-intel] (or [all]) to be installed. E.g., `pip install 'markitdown[az-doc-intel]'`"
             ) from _dependency_exc_info[
                 1
             ].with_traceback(  # type: ignore[union-attr]
@@ -175,11 +180,15 @@ class DocumentIntelligenceConverter(DocumentConverter):
 
         self.endpoint = endpoint
         self.api_version = api_version
-        self.doc_intel_client = DocumentIntelligenceClient(
-            endpoint=self.endpoint,
-            api_version=self.api_version,
-            credential=credential,
-        )
+
+        client_kwargs: dict[str, Any] = {
+            "endpoint": self.endpoint,
+            "credential": credential,
+        }
+        if self.api_version is not None:
+            client_kwargs["api_version"] = self.api_version
+
+        self.doc_intel_client = DocumentIntelligenceClient(**client_kwargs)
 
     def accepts(
         self,
@@ -202,7 +211,7 @@ class DocumentIntelligenceConverter(DocumentConverter):
     def _analysis_features(self, stream_info: StreamInfo) -> List[str]:
         """
         Helper needed to determine which analysis features to use.
-        Certain document analysis features are not availiable for
+        Certain document analysis features are not available for
         office filetypes (.xlsx, .pptx, .html, .docx)
         """
         mimetype = (stream_info.mimetype or "").lower()
